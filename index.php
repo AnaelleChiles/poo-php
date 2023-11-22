@@ -41,14 +41,12 @@ class Lobby
     }
 }
 
-class Player
-{
-    public $name;
-    public $ratio;
+abstract class abstractPlayer{
+    private $name;
+    private $ratio;
 
-    public function __construct(string $name, float $ratio = 400.0)
-    {
-        $this->name=$name;
+    public function __construct(string $name, float $ratio = 400.0) {
+        $this->name = $name;
         $this->ratio=$ratio;
     }
 
@@ -57,6 +55,17 @@ class Player
         return $this->name;
     }
 
+    public function getRatio(): float
+    {
+        return $this->ratio;
+    }
+
+}
+
+class Player extends abstractPlayer
+{
+
+    
     private function probabilityAgainst(self $player): float
     {
         return 1 / (1 + (10 ** (($player->getRatio() - $this->getRatio()) / 400)));
@@ -67,15 +76,13 @@ class Player
         $this->ratio += 32 * ($result - $this->probabilityAgainst($player));
     }
 
-    public function getRatio(): float
-    {
-        return $this->ratio;
-    }
+   
 }
+
 
 class QueuingPlayer extends Player
 {
-    public $range;
+    private $range;
 
     public function __construct(Player $player)
     {
