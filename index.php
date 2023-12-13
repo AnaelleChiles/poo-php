@@ -1,67 +1,136 @@
 <?php
 
+/*
+ * This file is part of the OpenClassRoom PHP Object Course.
+ *
+ * (c) Grégoire Hébert <contact@gheb.dev>
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
 
+declare(strict_types=1);
 
-class Player
-{
-    private $level;
+namespace App\MatchMaker\Lobby{
+    use App\MatchMaker\Players\Player;
+    use App\MatchMaker\Players\QueuingPlayer;
 
-    public function getLevel(): int
+    class Lobby
     {
-        return $this->level;
-    }
-    public function setLevel(int $niveau): int
-    {
-        $this->level = $niveau;
-        return $this->level;
-    }
+        /** @var array<QueuingPlayer> */
+        public array $queuingPlayers = [];
 
-    public function __construct(int $niveau){
-        $this->level = $niveau;
-    }
-
-}
-
-class Encounter
-{
-    const RESULT_WINNER = 1;
-    const RESULT_LOSER = -1;
-    const RESULT_DRAW = 0;
-    const RESULT_POSSIBILITIES = [self::RESULT_WINNER, self::RESULT_LOSER, self::RESULT_DRAW];
-
-    public static function probabilityAgainst(int $PlayerLevelOne, int $againstLevelPlayerTwo)
-    {
-        return 1 / (1 + (10 ** (($againstLevelPlayerTwo - $PlayerLevelOne) / 400)));
-    }
-
-    public static function setNewLevel(Player $PlayerOne, Player $againstPlayerTwo, int $playerOneResult)
-    {
-        if (!in_array($playerOneResult, self::RESULT_POSSIBILITIES)) {
-            trigger_error(sprintf('Invalid result. Expected %s', implode(' or ', self::RESULT_POSSIBILITIES)));
+    
+        public function findOponents(QueuingPlayer $player): array
+        {
+            $minLevel = round($player->getRatio() / 100);
+            $maxLevel = $minLevel + $player->getRange();
+    
+            return array_filter($this->queuingPlayers, static function (QueuingPlayer $potentialOponent) use ($minLevel, $maxLevel, $player) {
+                $playerLevel = round($potentialOponent->getRatio() / 100);
+    
+                return $player !== $potentialOponent && ($minLevel <= $playerLevel) && ($playerLevel <= $maxLevel);
+            });
         }
-
-        $PlayerOne->setLevel($PlayerOne->getLevel() + (int) (32 * ($playerOneResult - self::probabilityAgainst($PlayerOne->getLevel(), $againstPlayerTwo->getLevel()))));
+        public function addPlayer(Player $player): void
+        {
+            $this->queuingPlayers[] = new QueuingPlayer($player);
+        }
+    
+        public function addPlayers(Player ...$players): void
+        {
+            foreach ($players as $player) {
+                $this->addPlayer($player);
+            }
+        }
     }
 }
 
-$greg = new Player(400);
-$jade = new Player(800);
+namespace  App\MatchMaker\Players{
+        
 
-$rencontre = new Encounter();
+    abstract class AbstractPlayer
+    {
+        public function __construct(public string $name = 'anonymous', public float $ratio = 400.0)
+        {
+        }
+    
+        abstract public function getName(): string;
+    
+        abstract public function getRatio(): float;
+    
+        abstract protected function probabilityAgainst(self $player): float;
+    
+        abstract public function updateRatioAgainst(self $player, int $result): void;
+    }
+    
+    class Player extends AbstractPlayer
+    {
+        public function getName(): string
+        {
+            return $this->name;
+        }
+    
+        protected function probabilityAgainst(AbstractPlayer $player): float
+        {
+            return 1 / (1 + (10 ** (($player->getRatio() - $this->getRatio()) / 400)));
+        }
+    
+        public function updateRatioAgainst(AbstractPlayer $player, int $result): void
+        {
+            $this->ratio += 32 * ($result - $this->probabilityAgainst($player));
+        }
+    
+        public function getRatio(): float
+        {
+            return $this->ratio;
+        }
+    }
+    
+    class QueuingPlayer extends Player
+    {
+        public function __construct(AbstractPlayer $player, protected int $range = 1)
+        {
+            parent::__construct($player->getName(), $player->getRatio());
+        }
+    
+        public function getRange(): int
+        {
+            return $this->range;
+        }
+    
+        public function upgradeRange(): void
+        {
+            $this->range = min($this->range + 1, 40);
+        }
+    }
+    
+    class BlitzPlayer extends Player
+    {
+        public function __construct(public string $name = 'anonymous', public float $ratio = 1200.0)
+        {
+            parent::__construct($name, $ratio);
+        }
+    
+        public function updateRatioAgainst(AbstractPlayer $player, int $result): void
+        {
+            $this->ratio += 128 * ($result - $this->probabilityAgainst($player));
+        }
+    }
+}
 
-echo sprintf(
-    'Greg à %.2f%% chance de gagner face a Jade',
-    $rencontre->probabilityAgainst($greg->getLevel(), $jade->getLevel()) * 100
-) . PHP_EOL;
+namespace{
+    use App\MatchMaker\Players\BlitzPlayer;
+    use App\MatchMaker\Lobby\Lobby;
 
-// Imaginons que greg l'emporte tout de même.
-$rencontre->setNewLevel($greg, $jade, $rencontre::RESULT_WINNER);
-$rencontre->setNewLevel($jade, $greg, $rencontre::RESULT_LOSER);
+    $greg = new BlitzPlayer('greg');
+    $jade = new BlitzPlayer('jade');
 
-echo sprintf(
-    'les niveaux des joueurs ont évolués vers %s pour Greg et %s pour Jade',
-    $greg->getLevel(),
-    $jade->getLevel()
-);
+    $lobby = new Lobby();
+    $lobby->addPlayers($greg, $jade);
+    
+    var_dump($lobby->findOponents($lobby->queuingPlayers[0]));
+    
+    exit(0);
+}
 
-exit(0);
